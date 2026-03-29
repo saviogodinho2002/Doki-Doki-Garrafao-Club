@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import mermaid from 'mermaid';
 import {
   Play,
   RotateCcw,
@@ -15,8 +16,38 @@ import {
   CheckCircle2,
   Code2,
   Trophy,
-  History
+  History,
+  X
 } from 'lucide-react';
+
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'dark',
+  themeVariables: {
+    primaryColor: '#1e1b4b',
+    primaryTextColor: '#e2e8f0',
+    primaryBorderColor: '#6366f1',
+    lineColor: '#ec4899',
+    secondaryColor: '#0f172a',
+    tertiaryColor: '#1e293b',
+    background: '#0f172a',
+    mainBkg: '#1e1b4b',
+    nodeBorder: '#6366f1',
+    clusterBkg: '#1e293b',
+    titleColor: '#f9a8d4',
+    edgeLabelBackground: '#0f172a',
+    attributeBackgroundColorEven: '#1e1b4b',
+    attributeBackgroundColorOdd: '#0f172a',
+  },
+  er: {
+    diagramPadding: 20,
+    layoutDirection: 'TB',
+    minEntityWidth: 120,
+    minEntityHeight: 50,
+    entityPadding: 15,
+    useMaxWidth: true,
+  },
+});
 
 import computerImg from './computer.png';
 import bossNeutralImg from './confiante_wf.png';
@@ -110,6 +141,55 @@ export default function App() {
   const trackingChoice = useMemo(() => gameState.decisions.find(d => d.id === 'tracking')?.choice, [gameState.decisions]);
   const avgChoice = useMemo(() => gameState.decisions.find(d => d.id === 'avg')?.choice, [gameState.decisions]);
   const goodDecisions = useMemo(() => pkChoice === 'ID' && trackingChoice === 'Snapshot' && rankingChoice === 'Volume', [pkChoice, trackingChoice, rankingChoice]);
+
+  const [showDiagram, setShowDiagram] = useState(false);
+
+  const diagramText = useMemo(() => {
+    const lines: string[] = ['erDiagram'];
+
+    // pessoa
+    if (pkChoice === 'ID') {
+      lines.push('    pessoa {', '        int id PK', '        string nome', '        string cpf', '    }');
+    } else if (pkChoice === 'CPF') {
+      lines.push('    pessoa {', '        string cpf PK', '        string nome', '    }');
+    } else {
+      lines.push('    pessoa {', '        string nome', '    }');
+    }
+
+    // garrafao
+    if (trackingChoice === 'Coluna') {
+      lines.push('    garrafao {', '        int id PK', '        decimal capacidade_litros', '        decimal litro_atual', '    }');
+    } else {
+      lines.push('    garrafao {', '        int id PK', '        decimal capacidade_litros', '    }');
+    }
+
+    // consumo + abastecimento aparecem após decisão da FASE_1
+    if (pkChoice) {
+      const fkType = pkChoice === 'ID' ? 'int' : 'string';
+      const fkName = pkChoice === 'ID' ? 'pessoa_id' : 'pessoa_cpf';
+      lines.push(
+        '    consumo {', '        int id PK', '        int garrafao_id FK',
+        `        ${fkType} ${fkName} FK`, '        decimal litros', '        datetime created_at', '    }',
+        '    abastecimento {', '        int id PK', '        int garrafao_id FK',
+        `        ${fkType} ${fkName} FK`, '        decimal litros', '        datetime created_at', '    }',
+        '    pessoa ||--o{ consumo : "realiza"',
+        '    pessoa ||--o{ abastecimento : "realiza"',
+        '    garrafao ||--o{ consumo : "registra"',
+        '    garrafao ||--o{ abastecimento : "registra"',
+      );
+    }
+
+    // garrafao_snapshot aparece após decisão Snapshot na FASE_2
+    if (trackingChoice === 'Snapshot') {
+      lines.push(
+        '    garrafao_snapshot {', '        int id PK', '        int garrafao_id FK',
+        '        decimal litro_atual', '        datetime registrado_em', '    }',
+        '    garrafao ||--o{ garrafao_snapshot : "rastreia"',
+      );
+    }
+
+    return lines.join('\n');
+  }, [pkChoice, trackingChoice]);
 
   // Compute scene: which background and which boss image to show
   const sceneInfo = useMemo((): { bossImage: string | null; bg: string } => {
@@ -902,6 +982,36 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Botão Diagrama */}
+      <AnimatePresence>
+        {gameState.phase !== 'MENU' && (
+          <motion.button
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 10 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => setShowDiagram(true)}
+            className="absolute top-4 right-4 z-30 flex items-center gap-2 px-3 py-2 rounded-lg bg-black/40 border border-white/20 hover:bg-indigo-500/20 hover:border-indigo-400/40 transition-all cursor-pointer"
+            style={{ fontFamily: "'Cinzel', serif" }}
+          >
+            <Database className="w-3.5 h-3.5 text-white/70" />
+            <span className="text-white/70 text-xs tracking-widest uppercase">Esquema</span>
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* Modal Diagrama */}
+      <AnimatePresence>
+        {showDiagram && (
+          <DiagramModal
+            diagramText={diagramText}
+            pkChoice={pkChoice}
+            trackingChoice={trackingChoice}
+            onClose={() => setShowDiagram(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Layer 4 — Scanline overlay */}
       <div className="absolute inset-0 pointer-events-none opacity-[0.04] bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]" />
     </div>
@@ -1206,5 +1316,104 @@ function SqlDecisionBox({ title, subtitle, context, sqlOptions, onDecide }: {
       </motion.div>
 
     </div>
+  );
+}
+
+// --- Diagram Modal ---
+function DiagramModal({ diagramText, pkChoice, trackingChoice, onClose }: {
+  diagramText: string;
+  pkChoice: string | undefined;
+  trackingChoice: string | undefined;
+  onClose: () => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const idRef = useRef(`mermaid-${Math.random().toString(36).slice(2)}`);
+
+  useEffect(() => {
+    let cancelled = false;
+    mermaid.render(idRef.current, diagramText).then(({ svg }) => {
+      if (!cancelled && containerRef.current) {
+        containerRef.current.innerHTML = svg;
+        const svgEl = containerRef.current.querySelector('svg');
+        if (svgEl) {
+          svgEl.style.width = '100%';
+          svgEl.style.height = 'auto';
+          svgEl.style.maxHeight = '60vh';
+        }
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [diagramText]);
+
+  const labels: { label: string; desc: string }[] = [];
+  if (!pkChoice) labels.push({ label: 'Chave primária', desc: 'não decidida ainda' });
+  else labels.push({ label: 'Chave primária', desc: pkChoice === 'ID' ? 'ID surrogate' : 'CPF' });
+  if (trackingChoice) labels.push({ label: 'Rastreamento', desc: trackingChoice });
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="absolute inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.92, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.92, opacity: 0 }}
+        transition={{ duration: 0.2 }}
+        className="relative w-full max-w-3xl mx-4 vn-glass rounded-3xl p-8 flex flex-col gap-6 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => { e.stopPropagation(); }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2
+              className="text-2xl text-white text-shadow-vn"
+              style={{ fontFamily: "'Cinzel Decorative', serif", fontWeight: 900 }}
+            >
+              Esquema do Banco
+            </h2>
+            <p className="text-pink-300/70 text-xs mt-1 tracking-[0.2em] uppercase" style={{ fontFamily: "'Cinzel', serif" }}>
+              Estado atual do modelo de dados
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl bg-white/5 border border-white/10 hover:bg-pink-500/20 hover:border-pink-400/40 transition-all cursor-pointer"
+          >
+            <X className="w-4 h-4 text-white/70" />
+          </button>
+        </div>
+
+        <div className="h-px w-full bg-gradient-to-r from-transparent via-indigo-400/50 to-transparent" />
+
+        {/* Decision badges */}
+        {labels.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {labels.map((l, i) => (
+              <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-400/20">
+                <span className="text-indigo-300/60 text-xs uppercase tracking-widest" style={{ fontFamily: "'Cinzel', serif" }}>{l.label}:</span>
+                <span className="text-indigo-200 text-xs font-bold tracking-wide" style={{ fontFamily: "'Cinzel', serif" }}>{l.desc}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Diagram */}
+        <div
+          ref={containerRef}
+          className="w-full flex justify-center"
+        />
+
+        {/* Tracking note */}
+        {trackingChoice === 'Consulta' && (
+          <p className="text-white/50 text-xs text-center italic" style={{ fontFamily: "'Cinzel', serif" }}>
+            O nível do garrafão é calculado via query — nenhuma tabela extra foi adicionada.
+          </p>
+        )}
+      </motion.div>
+    </motion.div>
   );
 }
